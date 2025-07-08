@@ -4,7 +4,6 @@ import datetime
 import asyncio
 import os
 import re
-from urllib.parse import urlparse
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
@@ -19,6 +18,7 @@ HEADLESS = True
 
 # === GOOGLE SHEETS FUNCTIONS ===
 def get_sheets_service():
+    """Return a Google Sheets service client using the credentials file."""
     if not CREDENTIALS_FILE:
         raise EnvironmentError(
             "GOOGLE_APPLICATION_CREDENTIALS environment variable not set"
@@ -30,12 +30,14 @@ def get_sheets_service():
     return build('sheets', 'v4', credentials=creds)
 
 def get_links_from_sheet(service):
+    """Return rows containing vendor, URL and selector information."""
     range_name = f"{LINKS_TAB}!B{START_ROW}:D"
     result = service.spreadsheets().values().get(
         spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
     return result.get('values', [])
 
 def get_next_col_letter(service):
+    """Compute the next empty column letter in the links tab."""
     result = service.spreadsheets().values().get(
         spreadsheetId=SPREADSHEET_ID, range=f"{LINKS_TAB}!1:1").execute()
     headers = result.get('values', [[]])[0]
@@ -47,6 +49,7 @@ def get_next_col_letter(service):
     return result_col
 
 def write_prices(service, col_letter, prices):
+    """Write a column of price values to the spreadsheet."""
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"{LINKS_TAB}!{col_letter}{START_ROW}",
@@ -55,6 +58,7 @@ def write_prices(service, col_letter, prices):
     ).execute()
 
 def write_date_header(service, col_letter):
+    """Add a date header above the price column."""
     today = datetime.date.today().strftime("Price %-m/%-d")
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
@@ -64,6 +68,7 @@ def write_date_header(service, col_letter):
     ).execute()
 
 def log_errors(service, errors):
+    """Append scraping errors to the error log tab."""
     if not errors:
         return
     today = datetime.datetime.now().isoformat()
@@ -78,10 +83,12 @@ def log_errors(service, errors):
 
 # === SCRAPING HELPERS ===
 def extract_price(text):
+    """Return the first price-like string found in the text."""
     matches = re.findall(r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})", text)
     return matches[0] if matches else None
 
 async def enhanced_semantic_price_scan(page):
+    """Try multiple price selectors on the page and return the first match."""
     selector_patterns = [
         '[class*="price"]',
         '[id*="price"]',
@@ -109,6 +116,7 @@ async def enhanced_semantic_price_scan(page):
     return None
 
 async def fetch_price_from_page(page, url, selector=None):
+    """Return the price text from the given URL using optional CSS selector."""
     try:
         await page.goto(url, timeout=20000)
         await page.wait_for_timeout(3000)
@@ -142,6 +150,7 @@ async def fetch_price_from_page(page, url, selector=None):
         return f"Error: {str(e)}"
 
 async def scrape_all(rows):
+    """Scrape prices for each row of vendor data."""
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=HEADLESS)
         page = await browser.new_page()
@@ -172,6 +181,7 @@ async def scrape_all(rows):
 
 # === MAIN ===
 def main():
+    """Entry point to fetch prices and update the spreadsheet."""
     print("🔁 Starting scraper-v1.0...")
     service = get_sheets_service()
     rows = get_links_from_sheet(service)
