@@ -5,7 +5,8 @@ URL = "https://www.menards.com/main/hardware/casters-furniture-hardware/casters/
 
 async def extract_price_menards():
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)  # show browser for debugging
+        # run headless by default so the script works on servers without X11
+        browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
         await page.goto(URL, timeout=60000)
         await page.wait_for_timeout(7000)  # wait for dynamic content

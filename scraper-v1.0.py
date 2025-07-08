@@ -163,13 +163,30 @@ async def fetch_price_menards(page, url):
     try:
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
-        # Menards prices are loaded dynamically; give the page time
+
         await page.wait_for_timeout(7000)
-        locator = page.locator('[data-at-id="full-price-discount-edlp"] span')
-        await locator.first.wait_for(state="visible", timeout=10000)
-        text = await locator.first.inner_text()
-        price = extract_price(text)
-        return (price or text.strip(), status)
+
+        selectors = [
+            '[data-at-id="full-price-discount-edlp"] span',
+            '#itemFinalPrice',
+            '[data-at-id="itemFinalPrice"]',
+        ]
+
+        for sel in selectors:
+            try:
+                loc = page.locator(sel)
+                await loc.first.wait_for(state="visible", timeout=5000)
+                text = await loc.first.inner_text()
+                attr = await loc.first.get_attribute("data-final-price")
+                price = extract_price(text or "") or extract_price(attr or "")
+                if price:
+                    return price, status
+            except Exception:
+                continue
+
+        content = await page.content()
+        price = extract_price(content) or bs_price_scan(content)
+        return (price or "No price found", status)
     except Exception as e:
         logger.warning("Menards scraper error: %s", e)
         return (f"Menards error: {e}", None)
