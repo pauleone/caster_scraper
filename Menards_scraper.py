@@ -1,6 +1,5 @@
 import asyncio
 import re
-from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 URL = "https://www.menards.com/main/hardware/casters-furniture-hardware/casters/shepherd-hardware-reg-8-pneumatic-swivel-caster-wheel/9794ccm/p-1444442243761-c-13090.htm"
