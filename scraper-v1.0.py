@@ -182,13 +182,17 @@ async def fetch_price_from_page(page, url, selector=None):
         return f"Error: {str(e)}", None
 
 async def scrape_all(rows, concurrency=CONCURRENCY):
-    """Scrape prices for each row of vendor data using concurrent browser pages."""
+    """Scrape prices for each row concurrently using a pool of pages."""
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=HEADLESS)
 
         results = [None] * len(rows)
         errors = []
-        sem = asyncio.Semaphore(concurrency)
+
+        # Create a pool of pages according to the desired concurrency
+        page_pool = asyncio.Queue()
+        for _ in range(concurrency):
+            page_pool.put_nowait(await browser.new_page())
 
         async def scrape_row(idx, row):
             vendor = row[0].strip() if len(row) > 0 else ""
@@ -206,10 +210,11 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
                 selector or "semantic/fuzzy",
             )
 
-            async with sem:
-                page = await browser.new_page()
+            page = await page_pool.get()
+            try:
                 result, status = await fetch_price_from_page(page, url, selector)
-                await page.close()
+            finally:
+                await page_pool.put(page)
 
             if result and result.startswith(tuple("$€£")):
                 results[idx] = [result]
@@ -227,7 +232,19 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
                 )
 
         tasks = [asyncio.create_task(scrape_row(i, row)) for i, row in enumerate(rows)]
-        await asyncio.gather(*tasks)
+        task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log any unexpected exceptions captured by asyncio.gather
+        for res in task_results:
+            if isinstance(res, Exception):
+                errors.append(("", "", None, "gather", str(res)))
+                logger.error("Unhandled exception during scraping: %s", res)
+
+        # Close all pages in the pool
+        while not page_pool.empty():
+            page = await page_pool.get()
+            await page.close()
+
         await browser.close()
         return results, errors
 
