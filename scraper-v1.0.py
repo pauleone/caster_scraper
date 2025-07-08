@@ -15,6 +15,7 @@ ERROR_TAB = 'Error Log'
 START_ROW = 2
 CREDENTIALS_FILE = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
 HEADLESS = True
+CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "5"))
 
 # === GOOGLE SHEETS FUNCTIONS ===
 def get_sheets_service():
@@ -149,33 +150,43 @@ async def fetch_price_from_page(page, url, selector=None):
     except Exception as e:
         return f"Error: {str(e)}"
 
-async def scrape_all(rows):
-    """Scrape prices for each row of vendor data."""
+async def scrape_all(rows, concurrency=CONCURRENCY):
+    """Scrape prices for each row of vendor data using concurrent browser pages."""
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=HEADLESS)
-        page = await browser.new_page()
 
-        results = []
+        results = [None] * len(rows)
         errors = []
+        sem = asyncio.Semaphore(concurrency)
 
-        for idx, row in enumerate(rows):
+        async def scrape_row(idx, row):
             vendor = row[0].strip() if len(row) > 0 else ""
             url = row[1].strip() if len(row) > 1 else ""
             selector = row[2].strip() if len(row) > 2 else ""
 
             if not url:
-                results.append([""])
-                continue
+                results[idx] = [""]
+                return
 
-            print(f"Scraping: {vendor} | {url} | Using selector: {selector or 'semantic/fuzzy'}")
-            result = await fetch_price_from_page(page, url, selector)
+            print(
+                f"Scraping: {vendor} | {url} | Using selector: {selector or 'semantic/fuzzy'}"
+            )
+
+            async with sem:
+                page = await browser.new_page()
+                result = await fetch_price_from_page(page, url, selector)
+                await page.close()
 
             if result and result.startswith("$"):
-                results.append([result])
+                results[idx] = [result]
             else:
-                results.append([""])
-                errors.append((vendor, url, selector or "semantic/fuzzy", result))
+                results[idx] = [""]
+                errors.append(
+                    (vendor, url, selector or "semantic/fuzzy", result)
+                )
 
+        tasks = [asyncio.create_task(scrape_row(i, row)) for i, row in enumerate(rows)]
+        await asyncio.gather(*tasks)
         await browser.close()
         return results, errors
 
@@ -187,7 +198,7 @@ def main():
     rows = get_links_from_sheet(service)
     col_letter = get_next_col_letter(service)
 
-    prices, errors = asyncio.run(scrape_all(rows))
+    prices, errors = asyncio.run(scrape_all(rows, concurrency=CONCURRENCY))
 
     write_prices(service, col_letter, prices)
     write_date_header(service, col_letter)

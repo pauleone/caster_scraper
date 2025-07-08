@@ -11,9 +11,10 @@ This project collects pricing information from product pages and records the res
    ```
 4. Create a Google service account and download its credentials JSON file. Grant the service account access to your target spreadsheet.
 5. Export the path to the credentials file before running the scraper:
-   ```bash
-   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
-   ```
+ ```bash
+  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
+  ```
+6. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `5`.
 
 ## Spreadsheet Structure
 The scraper expects a spreadsheet with two tabs:
@@ -32,7 +33,10 @@ Run the scraper from the project directory:
 ```bash
 python scraper-v1.0.py
 ```
-The script retrieves the latest prices and writes them to the next empty column in the **Caster Links** tab. Any errors encountered are appended to the **Error Log** tab.
+The script retrieves the latest prices and writes them to the next empty column
+in the **Caster Links** tab. Set the `SCRAPER_CONCURRENCY` environment variable
+to control how many pages are fetched simultaneously. Any errors encountered are
+appended to the **Error Log** tab.
 
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.
