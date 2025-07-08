@@ -1,6 +1,6 @@
 # Caster Scraper
 
-This project collects pricing information from product pages and records the results in a Google Spreadsheet. It is built with Python, Playwright, and the Google Sheets API. The scraper understands common currency symbols and codes (USD, EUR, GBP, CAD, AUD, JPY, CNY, INR) so it can parse a variety of price formats.
+This project collects pricing information from product pages and records the results in a Google Spreadsheet. It is built with Python, Playwright, and the Google Sheets API.
 
 ## Setup
 1. Clone this repository and change into the project directory.

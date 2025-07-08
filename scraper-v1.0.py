@@ -100,26 +100,11 @@ def log_errors(service, errors):
     ).execute()
 
 # === SCRAPING HELPERS ===
-CURRENCY_SYMBOLS = "$€£¥₹"
-CURRENCY_CODES = "USD|EUR|GBP|CAD|AUD|JPY|CNY|INR"
-
 def extract_price(text):
-    """Return the first price-like string found in the text.
-
-    The parser understands common currency symbols and codes both before and
-    after the numeric value (e.g. ``€9.99``, ``9.99 USD``).
-    """
-
-    patterns = [
-        rf"[{CURRENCY_SYMBOLS}]\s?\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?",
-        rf"\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?\s?(?:{CURRENCY_CODES})",
-        rf"(?:{CURRENCY_CODES})\s?\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(0)
-    return None
+    """Return the first price-like string found in the text."""
+    pattern = r"[$€£]\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?"
+    matches = re.findall(pattern, text)
+    return matches[0] if matches else None
 
 def bs_price_scan(html):
     """Parse HTML with BeautifulSoup to locate a price when regex fails."""
@@ -265,9 +250,8 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
             finally:
                 await page_pool.put(page)
 
-            parsed = extract_price(result or "")
-            if parsed:
-                results[idx] = [parsed]
+            if result and result.startswith(tuple("$€£")):
+                results[idx] = [result]
             else:
                 results[idx] = [""]
                 errors.append(
