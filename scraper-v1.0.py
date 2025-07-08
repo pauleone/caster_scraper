@@ -265,6 +265,14 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
     """Scrape prices for each row concurrently using a pool of pages."""
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=HEADLESS)
+        context = await browser.new_context(
+            ignore_https_errors=True,
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/113.0.0.0 Safari/537.36"
+            ),
+        )
 
         results = [None] * len(rows)
         errors = []
@@ -272,7 +280,7 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
         # Create a pool of pages according to the desired concurrency
         page_pool = asyncio.Queue()
         for _ in range(concurrency):
-            page_pool.put_nowait(await browser.new_page())
+            page_pool.put_nowait(await context.new_page())
 
         async def scrape_row(idx, row):
             vendor = row[0].strip() if len(row) > 0 else ""
@@ -326,6 +334,7 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
             page = await page_pool.get()
             await page.close()
 
+        await context.close()
         await browser.close()
         return results, errors
 
