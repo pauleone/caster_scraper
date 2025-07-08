@@ -62,7 +62,7 @@ async def extract_price_menards():
 
         for sel in selectors:
             try:
-                element = await page.wait_for_selector(sel, timeout=10000)
+                element = await page.wait_for_selector(sel, timeout=5000)
                 if element:
                     text = await element.inner_text()
                     price = extract_price(text or "")
