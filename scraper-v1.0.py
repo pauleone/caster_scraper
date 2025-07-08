@@ -183,9 +183,12 @@ async def fetch_price_from_page(page, url, selector=None):
 
         # Tier 1: Specific selector from sheet
         if selector:
-            if "<" in selector or ">" in selector:
+            # Detect if the selector actually contains HTML markup rather than a
+            # plain CSS selector. This prevents mistaking pasted elements like
+            # ``<span id="price">`` for valid selectors.
+            if re.search(r"<[^>]+>", selector):
                 logger.warning(
-                    "Selector appears to contain HTML. Falling back to semantic/fuzzy scan: %s",
+                    "Selector appears to contain HTML markup. Falling back to semantic/fuzzy scan: %s",
                     selector,
                 )
             else:
