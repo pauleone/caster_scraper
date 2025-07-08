@@ -181,6 +181,8 @@ async def menards_price_scan(page):
     await page.wait_for_timeout(7000)
 
     selectors = [
+        '#itemFinalPrice',  # hidden element with data-final-price attribute
+        '[data-at-id="itemFinalPrice"]',
         '[data-at-id="full-price-discount-edlp"] span',
         '[data-at-id="full-price-current-edlp"] span',
     ]
@@ -189,8 +191,12 @@ async def menards_price_scan(page):
         try:
             element = await page.wait_for_selector(sel, timeout=5000)
             if element:
-                text = await element.inner_text()
-                price = extract_price(text or "")
+                if "itemFinalPrice" in sel:
+                    attr = await element.get_attribute("data-final-price")
+                    price = extract_price(attr or "")
+                else:
+                    text = await element.inner_text()
+                    price = extract_price(text or "")
                 if price:
                     return price
         except Exception:
