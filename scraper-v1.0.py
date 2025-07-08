@@ -100,11 +100,26 @@ def log_errors(service, errors):
     ).execute()
 
 # === SCRAPING HELPERS ===
+CURRENCY_SYMBOLS = "$€£¥₹"
+CURRENCY_CODES = "USD|EUR|GBP|CAD|AUD|JPY|CNY|INR"
+
 def extract_price(text):
-    """Return the first price-like string found in the text."""
-    pattern = r"[$€£]\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?"
-    matches = re.findall(pattern, text)
-    return matches[0] if matches else None
+    """Return the first price-like string found in the text.
+
+    The parser understands common currency symbols and codes both before and
+    after the numeric value (e.g. ``€9.99``, ``9.99 USD``).
+    """
+
+    patterns = [
+        rf"[{CURRENCY_SYMBOLS}]\s?\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?",
+        rf"\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?\s?(?:{CURRENCY_CODES})",
+        rf"(?:{CURRENCY_CODES})\s?\d{{1,3}}(?:[,.]\d{{3}})*(?:[,.]\d{{2}})?",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(0)
+    return None
 
 def bs_price_scan(html):
     """Parse HTML with BeautifulSoup to locate a price when regex fails."""
@@ -143,22 +158,6 @@ async def enhanced_semantic_price_scan(page):
             continue
     return None
 
-async def fetch_price_menards(page, url):
-    """Specialized handler for Menards product pages."""
-    try:
-        response = await page.goto(url, timeout=20000)
-        status = response.status if response else None
-        # Menards prices are loaded dynamically; give the page time
-        await page.wait_for_timeout(7000)
-        locator = page.locator('[data-at-id="full-price-discount-edlp"] span')
-        await locator.first.wait_for(state="visible", timeout=10000)
-        text = await locator.first.inner_text()
-        price = extract_price(text)
-        return (price or text.strip(), status)
-    except Exception as e:
-        logger.warning("Menards scraper error: %s", e)
-        return (f"Menards error: {e}", None)
-
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
@@ -168,32 +167,17 @@ async def fetch_price_from_page(page, url, selector=None):
 
         # Tier 1: Specific selector from sheet
         if selector:
-            # Detect if the selector actually contains HTML markup rather than a
-            # plain CSS selector. This prevents mistaking pasted elements like
-            # ``<span id="price">`` for valid selectors.
-            if re.search(r"<[^>]+>", selector):
-                logger.warning(
-                    "Selector appears to contain HTML markup. Falling back to semantic/fuzzy scan: %s",
-                    selector,
-                )
-            else:
-                try:
-                    await page.wait_for_selector(selector, timeout=6000)
-                    element = await page.query_selector(selector)
-                    if element:
-                        text = await element.inner_text()
-                        price = extract_price(text)
-                        return (
-                            price if price else "No price found in selector",
-                            status,
-                        )
-                    else:
-                        return ("Selector not found", status)
-                except Exception as sel_error:
-                    logger.warning(
-                        "Selector error: %s. Falling back to semantic/fuzzy scan.",
-                        sel_error,
-                    )
+            try:
+                await page.wait_for_selector(selector, timeout=6000)
+                element = await page.query_selector(selector)
+                if element:
+                    text = await element.inner_text()
+                    price = extract_price(text)
+                    return (price if price else "No price found in selector", status)
+                else:
+                    return ("Selector not found", status)
+            except Exception as sel_error:
+                return (f"Selector error: {sel_error}", status)
 
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
@@ -243,15 +227,13 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
 
             page = await page_pool.get()
             try:
-                if vendor.lower() == "menards":
-                    result, status = await fetch_price_menards(page, url)
-                else:
-                    result, status = await fetch_price_from_page(page, url, selector)
+                result, status = await fetch_price_from_page(page, url, selector)
             finally:
                 await page_pool.put(page)
 
-            if result and result.startswith(tuple("$€£")):
-                results[idx] = [result]
+            parsed = extract_price(result or "")
+            if parsed:
+                results[idx] = [parsed]
             else:
                 results[idx] = [""]
                 errors.append(
