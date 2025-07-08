@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+import random
+import requests
 from bs4 import BeautifulSoup
 import argparse
 
@@ -24,6 +26,13 @@ CREDENTIALS_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 HEADLESS_ENV = os.environ.get("HEADLESS", "true").lower() in ("1", "true", "yes", "y")
 HEADLESS = HEADLESS_ENV
 CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "5"))
+
+# API keys for optional scraping services
+SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
+SCRAPINGBEE_KEY = os.environ.get("SCRAPINGBEE_KEY")
+SCRAPEDO_KEY = os.environ.get("SCRAPEDO_KEY")
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
+ZYTE_API_KEY = os.environ.get("ZYTE_API_KEY")
 
 # === LOGGING SETUP ===
 logging.basicConfig(
@@ -131,6 +140,85 @@ def bs_price_scan(html):
             return price
     return None
 
+def fetch_with_scraping_services(url):
+    """Fetch a URL using one of the configured scraping services."""
+    services = []
+    if SCRAPERAPI_KEY:
+        services.append(
+            (
+                "scraperapi",
+                f"http://api.scraperapi.com/?api_key={SCRAPERAPI_KEY}&url={url}&render=true",
+            )
+        )
+    if SCRAPINGBEE_KEY:
+        services.append(
+            (
+                "scrapingbee",
+                f"https://app.scrapingbee.com/api/v1/?api_key={SCRAPINGBEE_KEY}&url={url}&render_js=true",
+            )
+        )
+    if SCRAPEDO_KEY:
+        services.append(
+            (
+                "scrape.do",
+                f"https://api.scrape.do/?token={SCRAPEDO_KEY}&url={url}&render=true",
+            )
+        )
+    if APIFY_TOKEN:
+        services.append(
+            (
+                "apify",
+                f"http://proxy.apify.com/?token={APIFY_TOKEN}&url={url}&render=true",
+            )
+        )
+    if ZYTE_API_KEY:
+        services.append(
+            (
+                "zyte",
+                f"https://api.zyte.com/v1/extract?url={url}&apikey={ZYTE_API_KEY}&render=true",
+            )
+        )
+
+    random.shuffle(services)
+    headers = {"User-Agent": "Mozilla/5.0"}
+    for name, service_url in services:
+        try:
+            resp = requests.get(service_url, headers=headers, timeout=30)
+            if resp.status_code == 200 and resp.text:
+                logger.info("Fetched %s via %s", url, name)
+                return resp.text
+            logger.warning("%s returned status %s", name, resp.status_code)
+        except Exception as e:
+            logger.warning("Service %s failed: %s", name, e)
+    return None
+
+def menards_price_from_html(html):
+    """Extract price from Menards HTML content."""
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        "#itemFinalPrice",
+        '[data-at-id="itemFinalPrice"]',
+        '[data-at-id="full-price-discount-edlp"] span',
+        '[data-at-id="full-price-current-edlp"] span',
+    ]
+    for sel in selectors:
+        el = soup.select_one(sel)
+        if not el:
+            continue
+        if "itemFinalPrice" in sel:
+            attr = el.get("data-final-price")
+            price = extract_price(attr or "")
+        else:
+            price = extract_price(el.get_text() or "")
+        if price:
+            return price
+    meta = soup.select_one('meta[property="product:price:amount"]')
+    if meta:
+        price = extract_price(meta.get("content") or "")
+        if price:
+            return price
+    return bs_price_scan(html)
+
 async def enhanced_semantic_price_scan(page):
     """Try multiple price selectors on the page and return the first match."""
     selector_patterns = [
@@ -176,8 +264,18 @@ async def caster_city_price_scan(page):
             continue
     return prices[0] if prices else "No valid price found in wrapper"
 
-async def menards_price_scan(page):
-    """Special handler for menards.com pages with graceful fallbacks."""
+async def menards_price_scan(page, url):
+    """Special handler for menards.com pages with proxy fallbacks."""
+
+    html = fetch_with_scraping_services(url)
+    if html:
+        price = menards_price_from_html(html)
+        if price:
+            return price
+
+    # Proxy failed, try loading directly via Playwright
+    response = await page.goto(url, timeout=20000)
+    status = response.status if response else None
     await page.wait_for_timeout(7000)
 
     selectors = [
@@ -218,16 +316,17 @@ async def menards_price_scan(page):
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
+        domain = urlparse(url).netloc.lower()
+        if "menards.com" in domain:
+            price = await menards_price_scan(page, url)
+            return price, None
+
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
         await page.wait_for_timeout(3000)
 
-        domain = urlparse(url).netloc.lower()
         if "castercity.com" in domain:
             price = await caster_city_price_scan(page)
-            return price, status
-        if "menards.com" in domain:
-            price = await menards_price_scan(page)
             return price, status
 
         # Tier 1: Specific selector from sheet
