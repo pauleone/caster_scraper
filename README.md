@@ -12,9 +12,16 @@ This project collects pricing information from product pages and records the res
 4. Create a Google service account and download its credentials JSON file. Grant the service account access to your target spreadsheet.
 5. Export the path to the credentials file before running the scraper:
  ```bash
-  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
+ export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
   ```
 6. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `5`.
+7. (Optional) Override spreadsheet details or browser mode with environment variables:
+   ```bash
+   export SPREADSHEET_ID=<your_sheet_id>
+   export LINKS_TAB="Caster Links"
+   export ERROR_TAB="Error Log"
+   export HEADLESS=false  # or use --headed when running the script
+   ```
 
 ## Spreadsheet Structure
 The scraper expects a spreadsheet with two tabs:
@@ -26,7 +33,13 @@ The scraper expects a spreadsheet with two tabs:
   New price columns are added automatically to the right of the existing data.
 - **Error Log** – Receives a timestamped list of any scraping issues.
 
-Update the `SPREADSHEET_ID` constant in `scraper-v1.0.py` if you are using a different spreadsheet.
+Set the spreadsheet and tab names using environment variables if they differ from the defaults:
+
+- `SPREADSHEET_ID` – Google Sheet ID (defaults to the demo sheet)
+- `LINKS_TAB` – Name of the tab containing URLs (defaults to `Caster Links`)
+- `ERROR_TAB` – Name of the tab for logging errors (defaults to `Error Log`)
+
+You can also control whether Playwright runs in headless mode. By default the browser is headless, but this can be overridden with `HEADLESS=false` or by passing `--headed` when running the script.
 
 ## Usage
 Run the scraper from the project directory:
