@@ -29,7 +29,8 @@ The scraper expects a spreadsheet with two tabs:
 - **Caster Links** – Contains product information to scrape. Rows start at B2 and should include:
   - **Column B**: Vendor or product name
   - **Column C**: Product URL
-  - **Column D**: Optional CSS selector for the price
+  - **Column D**: CSS selector string for the price (e.g., `#itemFinalPrice`). Do not paste the HTML snippet.
+  Example: if the markup contains `<span id="itemFinalPrice">$21.99</span>`, use `#itemFinalPrice` as the selector.
   New price columns are added automatically to the right of the existing data.
 - **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code alongside the URL and error message.
 
