@@ -5,6 +5,7 @@ import asyncio
 import os
 import re
 import logging
+from urllib.parse import urlparse
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
@@ -158,12 +159,34 @@ async def enhanced_semantic_price_scan(page):
             continue
     return None
 
+async def caster_city_price_scan(page):
+    """Special handler for castercity.com pages."""
+    await page.wait_for_timeout(5000)
+    wrapper = await page.query_selector(".summaryfull.entry-summaryfull")
+    if not wrapper:
+        return "Price wrapper not found"
+    elements = await wrapper.query_selector_all(".woocommerce-Price-amount.amount")
+    prices = []
+    for el in elements:
+        try:
+            text = await el.inner_text()
+            if "$" in text and text.strip() != "$0.00":
+                prices.append(text.strip())
+        except Exception:
+            continue
+    return prices[0] if prices else "No valid price found in wrapper"
+
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
         await page.wait_for_timeout(3000)
+
+        domain = urlparse(url).netloc.lower()
+        if "castercity.com" in domain:
+            price = await caster_city_price_scan(page)
+            return price, status
 
         # Tier 1: Specific selector from sheet
         if selector:
