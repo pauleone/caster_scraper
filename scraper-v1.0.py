@@ -177,6 +177,7 @@ async def caster_city_price_scan(page):
     return prices[0] if prices else "No valid price found in wrapper"
 
 async def menards_price_scan(page):
+ main
     """Special handler for menards.com pages."""
     await page.wait_for_timeout(7000)
     try:
@@ -186,6 +187,39 @@ async def menards_price_scan(page):
         return price.strip()
     except Exception as e:
         return f"Selector error: {e}"
+
+    """Special handler for menards.com pages with graceful fallbacks."""
+    await page.wait_for_timeout(7000)
+
+    selectors = [
+        '[data-at-id="full-price-discount-edlp"] span',
+        '[data-at-id="full-price-current-edlp"] span',
+    ]
+
+    for sel in selectors:
+        try:
+            element = await page.wait_for_selector(sel, timeout=5000)
+            if element:
+                text = await element.inner_text()
+                price = extract_price(text or "")
+                if price:
+                    return price
+        except Exception:
+            continue
+
+    try:
+        meta = await page.query_selector('meta[property="product:price:amount"]')
+        if meta:
+            content = await meta.get_attribute("content")
+            price = extract_price(content or "")
+            if price:
+                return price
+    except Exception:
+        pass
+
+    fallback = await enhanced_semantic_price_scan(page)
+    return fallback or "No price found"
+     uqb3su-codex/fix-menards-specific-logic
 
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
