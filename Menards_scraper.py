@@ -22,5 +22,4 @@ async def extract_price_menards():
             return "No price found"
 
 if __name__ == "__main__":
-    price = asyncio.run(extract_price_menards())
-    print("Menards price:", price)
+    price = asyncio.run(extract_price_menards())    print("Menards price:", price)

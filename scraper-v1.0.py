@@ -158,6 +158,22 @@ async def enhanced_semantic_price_scan(page):
             continue
     return None
 
+async def fetch_price_menards(page, url):
+    """Specialized handler for Menards product pages."""
+    try:
+        response = await page.goto(url, timeout=20000)
+        status = response.status if response else None
+        # Menards prices are loaded dynamically; give the page time
+        await page.wait_for_timeout(7000)
+        locator = page.locator('[data-at-id="full-price-discount-edlp"] span')
+        await locator.first.wait_for(state="visible", timeout=10000)
+        text = await locator.first.inner_text()
+        price = extract_price(text)
+        return (price or text.strip(), status)
+    except Exception as e:
+        logger.warning("Menards scraper error: %s", e)
+        return (f"Menards error: {e}", None)
+
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
@@ -239,7 +255,10 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
 
             page = await page_pool.get()
             try:
-                result, status = await fetch_price_from_page(page, url, selector)
+                if vendor.lower() == "menards":
+                    result, status = await fetch_price_menards(page, url)
+                else:
+                    result, status = await fetch_price_from_page(page, url, selector)
             finally:
                 await page_pool.put(page)
 
