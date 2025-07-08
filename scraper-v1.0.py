@@ -4,9 +4,11 @@ import datetime
 import asyncio
 import os
 import re
+import logging
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from bs4 import BeautifulSoup
 import argparse
 
 # === CONFIG ===
@@ -21,6 +23,13 @@ CREDENTIALS_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 HEADLESS_ENV = os.environ.get("HEADLESS", "true").lower() in ("1", "true", "yes", "y")
 HEADLESS = HEADLESS_ENV
 CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "5"))
+
+# === LOGGING SETUP ===
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # === GOOGLE SHEETS FUNCTIONS ===
 def get_sheets_service():
@@ -78,7 +87,10 @@ def log_errors(service, errors):
     if not errors:
         return
     today = datetime.datetime.now().isoformat()
-    values = [[today, vendor, url, selector, error] for vendor, url, selector, error in errors]
+    values = [
+        [today, vendor, url, status, selector, error]
+        for vendor, url, status, selector, error in errors
+    ]
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
         range=f"{ERROR_TAB}!A1",
@@ -90,8 +102,18 @@ def log_errors(service, errors):
 # === SCRAPING HELPERS ===
 def extract_price(text):
     """Return the first price-like string found in the text."""
-    matches = re.findall(r"\$\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})", text)
+    pattern = r"[$€£]\s?\d{1,3}(?:,\d{3})*(?:\.\d{2})?"
+    matches = re.findall(pattern, text)
     return matches[0] if matches else None
+
+def bs_price_scan(html):
+    """Parse HTML with BeautifulSoup to locate a price when regex fails."""
+    soup = BeautifulSoup(html, "html.parser")
+    for text_node in soup.stripped_strings:
+        price = extract_price(text_node)
+        if price:
+            return price
+    return None
 
 async def enhanced_semantic_price_scan(page):
     """Try multiple price selectors on the page and return the first match."""
@@ -124,7 +146,8 @@ async def enhanced_semantic_price_scan(page):
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
-        await page.goto(url, timeout=20000)
+        response = await page.goto(url, timeout=20000)
+        status = response.status if response else None
         await page.wait_for_timeout(3000)
 
         # Tier 1: Specific selector from sheet
@@ -135,25 +158,28 @@ async def fetch_price_from_page(page, url, selector=None):
                 if element:
                     text = await element.inner_text()
                     price = extract_price(text)
-                    return price if price else "No price found in selector"
+                    return (price if price else "No price found in selector", status)
                 else:
-                    return "Selector not found"
+                    return ("Selector not found", status)
             except Exception as sel_error:
-                return f"Selector error: {sel_error}"
+                return (f"Selector error: {sel_error}", status)
 
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
         if price:
-            return price
+            return price, status
 
         # Tier 3: Fuzzy content scan
         content = await page.content()
-        return extract_price(content) or "No price found in fuzzy scan"
+        text_price = extract_price(content)
+        if not text_price:
+            text_price = bs_price_scan(content)
+        return (text_price or "No price found in fuzzy scan", status)
 
     except PlaywrightTimeoutError:
-        return "Timeout"
+        return "Timeout", None
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {str(e)}", None
 
 async def scrape_all(rows, concurrency=CONCURRENCY):
     """Scrape prices for each row of vendor data using concurrent browser pages."""
@@ -173,21 +199,31 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
                 results[idx] = [""]
                 return
 
-            print(
-                f"Scraping: {vendor} | {url} | Using selector: {selector or 'semantic/fuzzy'}"
+            logger.info(
+                "Scraping: %s | %s | Using selector: %s",
+                vendor,
+                url,
+                selector or "semantic/fuzzy",
             )
 
             async with sem:
                 page = await browser.new_page()
-                result = await fetch_price_from_page(page, url, selector)
+                result, status = await fetch_price_from_page(page, url, selector)
                 await page.close()
 
-            if result and result.startswith("$"):
+            if result and result.startswith(tuple("$€£")):
                 results[idx] = [result]
             else:
                 results[idx] = [""]
                 errors.append(
-                    (vendor, url, selector or "semantic/fuzzy", result)
+                    (vendor, url, status, selector or "semantic/fuzzy", result)
+                )
+                logger.error(
+                    "Error scraping %s (%s) - status %s: %s",
+                    vendor,
+                    url,
+                    status,
+                    result,
                 )
 
         tasks = [asyncio.create_task(scrape_row(i, row)) for i, row in enumerate(rows)]
@@ -218,7 +254,7 @@ def main():
     args = parser.parse_args()
     HEADLESS = args.headless
 
-    print("🔁 Starting scraper-v1.0...")
+    logger.info("🔁 Starting scraper-v1.0...")
     service = get_sheets_service()
     rows = get_links_from_sheet(service)
     col_letter = get_next_col_letter(service)
@@ -228,7 +264,7 @@ def main():
     write_prices(service, col_letter, prices)
     write_date_header(service, col_letter)
     log_errors(service, errors)
-    print("✅ Scraping complete.")
+    logger.info("✅ Scraping complete.")
 
 if __name__ == "__main__":
     main()
