@@ -56,6 +56,8 @@ async def extract_price_menards():
         await page.wait_for_timeout(7000)  # wait for dynamic content
 
         selectors = [
+            '#itemFinalPrice',  # hidden element with data-final-price attribute
+            '[data-at-id="itemFinalPrice"]',
             '[data-at-id="full-price-discount-edlp"] span',
             '[data-at-id="full-price-current-edlp"] span',
         ]
@@ -64,8 +66,12 @@ async def extract_price_menards():
             try:
                 element = await page.wait_for_selector(sel, timeout=5000)
                 if element:
-                    text = await element.inner_text()
-                    price = extract_price(text or "")
+                    if "itemFinalPrice" in sel:
+                        attr = await element.get_attribute("data-final-price")
+                        price = extract_price(attr or "")
+                    else:
+                        text = await element.inner_text()
+                        price = extract_price(text or "")
                     if price:
                         await browser.close()
                         return price
