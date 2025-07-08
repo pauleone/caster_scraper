@@ -167,17 +167,29 @@ async def fetch_price_from_page(page, url, selector=None):
 
         # Tier 1: Specific selector from sheet
         if selector:
-            try:
-                await page.wait_for_selector(selector, timeout=6000)
-                element = await page.query_selector(selector)
-                if element:
-                    text = await element.inner_text()
-                    price = extract_price(text)
-                    return (price if price else "No price found in selector", status)
-                else:
-                    return ("Selector not found", status)
-            except Exception as sel_error:
-                return (f"Selector error: {sel_error}", status)
+            if "<" in selector or ">" in selector:
+                logger.warning(
+                    "Selector appears to contain HTML. Falling back to semantic/fuzzy scan: %s",
+                    selector,
+                )
+            else:
+                try:
+                    await page.wait_for_selector(selector, timeout=6000)
+                    element = await page.query_selector(selector)
+                    if element:
+                        text = await element.inner_text()
+                        price = extract_price(text)
+                        return (
+                            price if price else "No price found in selector",
+                            status,
+                        )
+                    else:
+                        return ("Selector not found", status)
+                except Exception as sel_error:
+                    logger.warning(
+                        "Selector error: %s. Falling back to semantic/fuzzy scan.",
+                        sel_error,
+                    )
 
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
