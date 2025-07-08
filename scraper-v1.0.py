@@ -2,6 +2,7 @@
 
 import datetime
 import asyncio
+import os
 import re
 from urllib.parse import urlparse
 from google.oauth2 import service_account
@@ -13,11 +14,15 @@ SPREADSHEET_ID = '1UmYEGz8jibtvNUkq5X5HbG3lCdZTfQ4Blooq9bwDZwc'
 LINKS_TAB = 'Caster Links'
 ERROR_TAB = 'Error Log'
 START_ROW = 2
-CREDENTIALS_FILE = 'caster-scraper-b33e30545bf4.json'
+CREDENTIALS_FILE = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
 HEADLESS = True
 
 # === GOOGLE SHEETS FUNCTIONS ===
 def get_sheets_service():
+    if not CREDENTIALS_FILE:
+        raise EnvironmentError(
+            "GOOGLE_APPLICATION_CREDENTIALS environment variable not set"
+        )
     creds = service_account.Credentials.from_service_account_file(
         CREDENTIALS_FILE,
         scopes=['https://www.googleapis.com/auth/spreadsheets']
