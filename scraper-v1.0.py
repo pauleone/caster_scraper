@@ -7,14 +7,19 @@ import re
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+import argparse
 
 # === CONFIG ===
-SPREADSHEET_ID = '1UmYEGz8jibtvNUkq5X5HbG3lCdZTfQ4Blooq9bwDZwc'
-LINKS_TAB = 'Caster Links'
-ERROR_TAB = 'Error Log'
+SPREADSHEET_ID = os.environ.get(
+    "SPREADSHEET_ID", "1UmYEGz8jibtvNUkq5X5HbG3lCdZTfQ4Blooq9bwDZwc"
+)
+LINKS_TAB = os.environ.get("LINKS_TAB", "Caster Links")
+ERROR_TAB = os.environ.get("ERROR_TAB", "Error Log")
 START_ROW = 2
-CREDENTIALS_FILE = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-HEADLESS = True
+CREDENTIALS_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+HEADLESS_ENV = os.environ.get("HEADLESS", "true").lower() in ("1", "true", "yes", "y")
+HEADLESS = HEADLESS_ENV
 CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "5"))
 
 # === GOOGLE SHEETS FUNCTIONS ===
@@ -193,6 +198,26 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
 # === MAIN ===
 def main():
     """Entry point to fetch prices and update the spreadsheet."""
+    global HEADLESS
+
+    parser = argparse.ArgumentParser(description="Run the price scraper")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--headless",
+        dest="headless",
+        action="store_true",
+        help="Run browser in headless mode",
+    )
+    group.add_argument(
+        "--headed",
+        dest="headless",
+        action="store_false",
+        help="Run browser with UI",
+    )
+    parser.set_defaults(headless=HEADLESS_ENV)
+    args = parser.parse_args()
+    HEADLESS = args.headless
+
     print("🔁 Starting scraper-v1.0...")
     service = get_sheets_service()
     rows = get_links_from_sheet(service)
