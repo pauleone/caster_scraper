@@ -3,7 +3,7 @@ import asyncio
 from typing import Optional
 
 import requests
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, Page
 
 URL = "https://www.northerntool.com/products/vestil-caster-wheel-diameter-10-in-caster-type-swivel-package-qty-1-model-cst-f-10x3fm-s-4863671"
 JSON_TEMPLATE = (
@@ -53,23 +53,41 @@ async def fetch_price_playwright(url: str) -> Optional[str]:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        def check_response(response):
-            if "price" in response.url and "byPartNumbers" in response.url:
-                if part:
-                    return part in response.url
-                return True
+        def matches(resp):
+            if "price" in resp.url and "byPartNumbers" in resp.url:
+                return part in resp.url if part else True
             return False
 
-        wait_task = page.wait_for_response(check_response, timeout=15000)
         await page.goto(url, timeout=60000)
         try:
-            resp = await wait_task
+            resp = await page.wait_for_event("response", matches, timeout=15000)
             data = await resp.json()
             return parse_price(data)
         except Exception:
             return None
         finally:
             await browser.close()
+
+
+async def price_from_page(page: Page, url: str) -> Optional[str]:
+    """Use an existing Playwright page to fetch the price."""
+    part = extract_part_number(url)
+
+    def matches(resp):
+        if "price" in resp.url and "byPartNumbers" in resp.url:
+            return part in resp.url if part else True
+        return False
+
+    await page.goto(url, timeout=60000)
+    try:
+        resp = await page.wait_for_event("response", matches, timeout=15000)
+        data = await resp.json()
+        price = parse_price(data)
+        if price:
+            return price
+    except Exception:
+        pass
+    return fetch_price_json(url)
 
 
 async def fetch_price_async(url: str = URL) -> str:
