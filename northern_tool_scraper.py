@@ -53,17 +53,14 @@ async def fetch_price_playwright(url: str) -> Optional[str]:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        def check_response(response):
-            if "price" in response.url and "byPartNumbers" in response.url:
-                if part:
-                    return part in response.url
-                return True
+        def matches(resp):
+            if "price" in resp.url and "byPartNumbers" in resp.url:
+                return part in resp.url if part else True
             return False
 
-        wait_task = page.wait_for_response(check_response, timeout=15000)
         await page.goto(url, timeout=60000)
         try:
-            resp = await wait_task
+            resp = await page.wait_for_event("response", matches, timeout=15000)
             data = await resp.json()
             return parse_price(data)
         except Exception:
