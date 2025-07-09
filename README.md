@@ -31,7 +31,7 @@ The scraper expects a spreadsheet with two tabs:
   - **Column C**: Product URL
   - **Column D**: Optional CSS selector for the price
   New price columns are added automatically to the right of the existing data.
-- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code, the selector used, and a short HTML snippet alongside the URL and error message.
+- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code, the selector used, the method that located the price (such as proxy or semantic scan), and a short HTML snippet alongside the URL and error message.
 
 Set the spreadsheet and tab names using environment variables if they differ from the defaults:
 

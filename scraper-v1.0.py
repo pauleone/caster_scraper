@@ -57,26 +57,12 @@ def get_sheets_service():
     )
     return build('sheets', 'v4', credentials=creds)
 
-def get_links_from_sheet(service, row=None, vendor=None):
-    """Return rows containing vendor, URL and selector information.
-
-    Optionally filter by a specific spreadsheet row number or by vendor name.
-    """
+def get_links_from_sheet(service):
+    """Return rows containing vendor, URL and selector information."""
     range_name = f"{LINKS_TAB}!B{START_ROW}:D"
     result = service.spreadsheets().values().get(
-        spreadsheetId=SPREADSHEET_ID, range=range_name
-    ).execute()
-    rows = result.get("values", [])
-
-    filtered = []
-    for idx, r in enumerate(rows, START_ROW):
-        if row is not None and idx != row:
-            continue
-        if vendor and (len(r) == 0 or vendor.lower() not in r[0].lower()):
-            continue
-        filtered.append(r)
-
-    return filtered
+        spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
+    return result.get('values', [])
 
 def get_next_col_letter(service):
     """Compute the next empty column letter in the links tab."""
@@ -329,6 +315,7 @@ async def menards_price_scan(page, url):
 
     # Proxy failed, try loading directly via Playwright
     response = await page.goto(url, timeout=20000)
+    status = response.status if response else None
     await page.wait_for_timeout(7000)
 
     selectors = [
@@ -424,6 +411,42 @@ async def msc_price_scan(page, url):
     fallback = await enhanced_semantic_price_scan(page)
     return (fallback or "No price found", "semantic", status)
 
+
+def caster_depot_price_from_html(html):
+    """Extract the price from Caster Depot HTML using typical price selectors."""
+    soup = BeautifulSoup(html, "html.parser")
+    el = soup.select_one(".price-box .price")
+    if el:
+        price = extract_price(el.get_text() or "")
+        if price:
+            return price
+    price = script_price_scan(html)
+    if price:
+        return price
+    return bs_price_scan(html)
+
+
+async def caster_depot_price_scan(page, url):
+    """Special handler for casterdepot.com pages with proxy fallback."""
+    html = fetch_with_scraping_services(url)
+    if html:
+        price = caster_depot_price_from_html(html)
+        if price:
+            return price, "proxy", None
+
+    response = await page.goto(url, timeout=20000)
+    status = response.status if response else None
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        await page.wait_for_timeout(5000)
+    page_html = await page.content()
+    price = caster_depot_price_from_html(page_html)
+    if price:
+        return price, "direct", status
+    fallback = await enhanced_semantic_price_scan(page)
+    return (fallback or "No price found", "semantic", status)
+
 async def harbor_freight_price_scan(url):
     """Fetch price data from Harbor Freight's Dynamic Yield endpoint."""
 
@@ -460,6 +483,10 @@ async def fetch_price_from_page(page, url, selector=None):
         if "northerntool.com" in domain:
             nt_price = await nt_price_from_page(page, url)
             return nt_price or "No price found", None, None, "northerntool"
+
+        if "casterdepot.com" in domain:
+            price, method, status = await caster_depot_price_scan(page, url)
+            return price, status, None, f"casterdepot-{method}"
 
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
@@ -619,22 +646,13 @@ def main():
         action="store_false",
         help="Run browser with UI",
     )
-    parser.add_argument(
-        "--row",
-        type=int,
-        help="Only scrape the specified spreadsheet row number",
-    )
-    parser.add_argument(
-        "--vendor",
-        help="Only scrape rows whose vendor column contains this value",
-    )
     parser.set_defaults(headless=HEADLESS_ENV)
     args = parser.parse_args()
     HEADLESS = args.headless
 
     logger.info("🔁 Starting scraper-v1.0...")
     service = get_sheets_service()
-    rows = get_links_from_sheet(service, row=args.row, vendor=args.vendor)
+    rows = get_links_from_sheet(service)
     col_letter = get_next_col_letter(service)
 
     prices, errors = asyncio.run(scrape_all(rows, concurrency=CONCURRENCY))
@@ -644,4 +662,5 @@ def main():
     log_errors(service, errors)
     logger.info("✅ Scraping complete.")
 
-if __name__ == "__main__":    main()
+if __name__ == "__main__":
+    main()
