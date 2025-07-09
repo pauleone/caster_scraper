@@ -364,7 +364,9 @@ async def fetch_price_from_page(page, url, selector=None):
                     text = ""
                 price = extract_price(text)
                 if price:
+        eyhmx7-codex/fix-broken-links-after-last-commit
                     return price, status, None
+        main
                 logger.debug("No price found in selector for %s", selector)
             else:
                 logger.debug("Selector not found: %s", selector)
