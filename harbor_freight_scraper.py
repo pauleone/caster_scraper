@@ -25,14 +25,10 @@ def fetch_price(url: str = URL) -> str:
     resp = requests.get(dy_url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
- ufy1ht-codex/add-harbor-freight-scraping-logic
     price = data.get("feedProperties", {}).get("price")
     if price:
         return f"${price}"
     return "No price found"
-
-    return data.get("feedProperties", {}).get("price", "No price found")
- main
 
 
 if __name__ == "__main__":
