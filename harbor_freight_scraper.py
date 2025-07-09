@@ -25,7 +25,10 @@ def fetch_price(url: str = URL) -> str:
     resp = requests.get(dy_url, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("feedProperties", {}).get("price", "No price found")
+    price = data.get("feedProperties", {}).get("price")
+    if price:
+        return f"${price}"
+    return "No price found"
 
 
 if __name__ == "__main__":
