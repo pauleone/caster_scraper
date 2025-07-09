@@ -370,9 +370,42 @@ async def grainger_price_scan(page, url):
 
     response = await page.goto(url, timeout=20000)
     _ = response.status if response else None
-    await page.wait_for_timeout(5000)
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        await page.wait_for_timeout(5000)
     page_html = await page.content()
     price = grainger_price_from_html(page_html)
+    if price:
+        return price
+    fallback = await enhanced_semantic_price_scan(page)
+    return fallback or "No price found"
+
+
+def msc_price_from_html(html):
+    """Extract the price from MSC Direct HTML using JSON-LD or fuzzy scan."""
+    price = script_price_scan(html)
+    if price:
+        return price
+    return bs_price_scan(html)
+
+
+async def msc_price_scan(page, url):
+    """Special handler for MSC Direct pages with proxy fallback."""
+    html = fetch_with_scraping_services(url)
+    if html:
+        price = msc_price_from_html(html)
+        if price:
+            return price
+
+    response = await page.goto(url, timeout=20000)
+    _ = response.status if response else None
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        await page.wait_for_timeout(5000)
+    page_html = await page.content()
+    price = msc_price_from_html(page_html)
     if price:
         return price
     fallback = await enhanced_semantic_price_scan(page)
@@ -407,13 +440,13 @@ async def fetch_price_from_page(page, url, selector=None):
             price = await grainger_price_scan(page, url)
             return price, None, None
 
-        if "northerntool.com" in domain:
-            price = await nt_price_from_page(page, url)
-            return price or "No price found", None
+        if "mscdirect.com" in domain:
+            price = await msc_price_scan(page, url)
+            return price, None, None
 
         if "northerntool.com" in domain:
             price = await nt_price_from_page(page, url)
-            return price or "No price found", None
+            return price or "No price found", None, None
 
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
