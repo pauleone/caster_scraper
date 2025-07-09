@@ -142,6 +142,43 @@ def bs_price_scan(html):
             return price
     return None
 
+def _json_price_search(data):
+    """Recursively look for a numeric price field in JSON data."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key.lower() == "price" and isinstance(value, (str, int, float)):
+                return str(value)
+            found = _json_price_search(value)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = _json_price_search(item)
+            if found:
+                return found
+    return None
+
+
+def script_price_scan(html):
+    """Search <script> tags for a price value."""
+    soup = BeautifulSoup(html, "html.parser")
+    for script in soup.find_all("script"):
+        content = script.string or ""
+        if script.get("type") == "application/ld+json":
+            try:
+                data = json.loads(content)
+            except Exception:
+                data = None
+            if data:
+                price = _json_price_search(data)
+                if price:
+                    return f"${price}" if not extract_price(str(price)) else str(price)
+        else:
+            match = re.search(r"[\"']price[\"']\s*[:=]\s*[\"']?(\d+(?:[.,]\d+)?)", content)
+            if match:
+                return f"${match.group(1)}"
+    return None
+
 def fetch_with_scraping_services(url):
     """Fetch a URL using one of the configured scraping services."""
     services = []
@@ -373,9 +410,7 @@ async def fetch_price_from_page(page, url, selector=None):
                     text = ""
                 price = extract_price(text)
                 if price:
-        eyhmx7-codex/fix-broken-links-after-last-commit
                     return price, status, None
-        main
                 logger.debug("No price found in selector for %s", selector)
             else:
                 logger.debug("Selector not found: %s", selector)
@@ -386,7 +421,12 @@ async def fetch_price_from_page(page, url, selector=None):
         if price:
             return price, status, None
 
-        # Tier 3: Fuzzy content scan
+        # Tier 3: Look inside script tags for price data
+        script_price = script_price_scan(page_html)
+        if script_price:
+            return script_price, status, None
+
+        # Tier 4: Fuzzy content scan
         text_price = extract_price(page_html)
         if not text_price:
             text_price = bs_price_scan(page_html)
