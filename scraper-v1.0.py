@@ -344,6 +344,10 @@ async def fetch_price_from_page(page, url, selector=None):
             price = await nt_price_from_page(page, url)
             return price or "No price found", None
 
+        if "northerntool.com" in domain:
+            price = await nt_price_from_page(page, url)
+            return price or "No price found", None
+
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
         await page.wait_for_timeout(3000)

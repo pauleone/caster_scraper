@@ -1,3 +1,4 @@
+@@ -0,0 +1,125 @@
 import re
 import asyncio
 from typing import Optional
@@ -18,17 +19,36 @@ def extract_part_number(url: str) -> str:
 
 
 def parse_price(data) -> Optional[str]:
-    item = data
-    if isinstance(data, list) and data:
-        item = data[0]
-    if not isinstance(item, dict):
-        return None
-    for key in ["salePrice", "offerPrice", "unitPrice", "price"]:
-        if key in item:
-            return str(item[key])
-    for key, value in item.items():
-        if "price" in key.lower() and isinstance(value, (int, float, str)):
-            return str(value)
+    """Recursively search common price fields in the given data."""
+
+    if isinstance(data, dict):
+        # direct keys that may contain numeric value or nested price dict
+        for key in ["salePrice", "offerPrice", "unitPrice", "price", "value"]:
+            if key in data:
+                val = data[key]
+                if isinstance(val, dict):
+                    if "value" in val:
+                        return str(val["value"])
+                elif isinstance(val, (int, float, str)):
+                    return str(val)
+
+        # search any key containing "price"
+        for key, val in data.items():
+            if "price" in key.lower():
+                if isinstance(val, dict) and "value" in val:
+                    return str(val["value"])
+                if isinstance(val, (int, float, str)):
+                    return str(val)
+            price = parse_price(val)
+            if price:
+                return price
+
+    elif isinstance(data, list):
+        for item in data:
+            price = parse_price(item)
+            if price:
+                return price
+
     return None
 
 
