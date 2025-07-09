@@ -329,7 +329,6 @@ async def menards_price_scan(page, url):
 
     # Proxy failed, try loading directly via Playwright
     response = await page.goto(url, timeout=20000)
-    status = response.status if response else None
     await page.wait_for_timeout(7000)
 
     selectors = [
