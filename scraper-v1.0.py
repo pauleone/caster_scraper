@@ -13,6 +13,7 @@ import random
 import requests
 from bs4 import BeautifulSoup
 import argparse
+from harbor_freight_scraper import fetch_price as hf_fetch_price
 
 # === CONFIG ===
 SPREADSHEET_ID = os.environ.get(
@@ -82,14 +83,14 @@ def write_prices(service, col_letter, prices):
         body={"values": prices}
     ).execute()
 
-def write_date_header(service, col_letter):
-    """Add a date header above the price column."""
-    today = datetime.date.today().strftime("Price %-m/%-d")
+def write_timestamp_header(service, col_letter):
+    """Add a timestamp header above the price column."""
+    ts = datetime.datetime.now().strftime("Price %Y-%m-%d %H:%M:%S")
     service.spreadsheets().values().update(
         spreadsheetId=SPREADSHEET_ID,
         range=f"{LINKS_TAB}!{col_letter}1",
         valueInputOption="RAW",
-        body={"values": [[today]]}
+        body={"values": [[ts]]}
     ).execute()
 
 def log_errors(service, errors):
@@ -313,12 +314,28 @@ async def menards_price_scan(page, url):
     fallback = await enhanced_semantic_price_scan(page)
     return fallback or "No price found"
 
+async def harbor_freight_price_scan(url):
+    """Fetch price data from Harbor Freight's Dynamic Yield endpoint."""
+
+    def _fetch():
+        return hf_fetch_price(url)
+
+    try:
+        price = await asyncio.to_thread(_fetch)
+        return price
+    except Exception as e:
+        return f"Error: {e}"
+
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
     try:
         domain = urlparse(url).netloc.lower()
         if "menards.com" in domain:
             price = await menards_price_scan(page, url)
+            return price, None
+
+        if "harborfreight.com" in domain:
+            price = await harbor_freight_price_scan(url)
             return price, None
 
         response = await page.goto(url, timeout=20000)
@@ -341,7 +358,8 @@ async def fetch_price_from_page(page, url, selector=None):
                 else:
                     return ("Selector not found", status)
             except Exception as sel_error:
-                return (f"Selector error: {sel_error}", status)
+                logger.debug("Selector failed for %s: %s", selector, sel_error)
+                return ("Selector error", status)
 
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
@@ -468,7 +486,7 @@ def main():
     prices, errors = asyncio.run(scrape_all(rows, concurrency=CONCURRENCY))
 
     write_prices(service, col_letter, prices)
-    write_date_header(service, col_letter)
+    write_timestamp_header(service, col_letter)
     log_errors(service, errors)
     logger.info("✅ Scraping complete.")
 
