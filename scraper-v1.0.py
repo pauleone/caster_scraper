@@ -101,8 +101,8 @@ def log_errors(service, errors):
         return
     today = datetime.datetime.now().isoformat()
     values = [
-        [today, vendor, url, status, selector, error, snippet]
-        for vendor, url, status, selector, error, snippet in errors
+        [today, vendor, url, status, selector, method, error, snippet]
+        for vendor, url, status, selector, method, error, snippet in errors
     ]
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
@@ -366,10 +366,10 @@ async def grainger_price_scan(page, url):
     if html:
         price = grainger_price_from_html(html)
         if price:
-            return price
+            return price, "proxy", None
 
     response = await page.goto(url, timeout=20000)
-    _ = response.status if response else None
+    status = response.status if response else None
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except Exception:
@@ -377,9 +377,9 @@ async def grainger_price_scan(page, url):
     page_html = await page.content()
     price = grainger_price_from_html(page_html)
     if price:
-        return price
+        return price, "direct", status
     fallback = await enhanced_semantic_price_scan(page)
-    return fallback or "No price found"
+    return (fallback or "No price found", "semantic", status)
 
 
 def msc_price_from_html(html):
@@ -396,10 +396,10 @@ async def msc_price_scan(page, url):
     if html:
         price = msc_price_from_html(html)
         if price:
-            return price
+            return price, "proxy", None
 
     response = await page.goto(url, timeout=20000)
-    _ = response.status if response else None
+    status = response.status if response else None
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except Exception:
@@ -407,9 +407,9 @@ async def msc_price_scan(page, url):
     page_html = await page.content()
     price = msc_price_from_html(page_html)
     if price:
-        return price
+        return price, "direct", status
     fallback = await enhanced_semantic_price_scan(page)
-    return fallback or "No price found"
+    return (fallback or "No price found", "semantic", status)
 
 async def harbor_freight_price_scan(url):
     """Fetch price data from Harbor Freight's Dynamic Yield endpoint."""
@@ -430,23 +430,23 @@ async def fetch_price_from_page(page, url, selector=None):
         domain = urlparse(url).netloc.lower()
         if "menards.com" in domain:
             price = await menards_price_scan(page, url)
-            return price, None, None
+            return price, None, None, "menards"
 
         if "harborfreight.com" in domain:
             price = await harbor_freight_price_scan(url)
-            return price, None, None
+            return price, None, None, "harborfreight"
 
         if "grainger.com" in domain:
-            price = await grainger_price_scan(page, url)
-            return price, None, None
+            price, method, status = await grainger_price_scan(page, url)
+            return price, status, None, f"grainger-{method}"
 
         if "mscdirect.com" in domain:
-            price = await msc_price_scan(page, url)
-            return price, None, None
+            price, method, status = await msc_price_scan(page, url)
+            return price, status, None, f"msc-{method}"
 
         if "northerntool.com" in domain:
-            price = await nt_price_from_page(page, url)
-            return price or "No price found", None, None
+            nt_price = await nt_price_from_page(page, url)
+            return nt_price or "No price found", None, None, "northerntool"
 
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
@@ -455,7 +455,7 @@ async def fetch_price_from_page(page, url, selector=None):
 
         if "castercity.com" in domain:
             price = await caster_city_price_scan(page)
-            return price, status, None
+            return price, status, None, "castercity"
 
         # Tier 1: Specific selector from sheet
         if selector:
@@ -473,7 +473,7 @@ async def fetch_price_from_page(page, url, selector=None):
                     text = ""
                 price = extract_price(text)
                 if price:
-                    return price, status, None
+                    return price, status, None, "selector"
                 logger.debug("No price found in selector for %s", selector)
             else:
                 logger.debug("Selector not found: %s", selector)
@@ -482,23 +482,23 @@ async def fetch_price_from_page(page, url, selector=None):
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
         if price:
-            return price, status, None
+            return price, status, None, "semantic"
 
         # Tier 3: Look inside script tags for price data
         script_price = script_price_scan(page_html)
         if script_price:
-            return script_price, status, None
+            return script_price, status, None, "script"
 
         # Tier 4: Fuzzy content scan
         text_price = extract_price(page_html)
         if not text_price:
             text_price = bs_price_scan(page_html)
-        return (text_price or "No price found in fuzzy scan", status, page_html[:500])
+        return (text_price or "No price found in fuzzy scan", status, page_html[:500], "fuzzy")
 
     except PlaywrightTimeoutError:
-        return "Timeout", None, page_html[:500]
+        return "Timeout", None, page_html[:500], "timeout"
     except Exception as e:
-        return f"Error: {str(e)}", None, page_html[:500]
+        return f"Error: {str(e)}", None, page_html[:500], "exception"
 
 async def scrape_all(rows, concurrency=CONCURRENCY):
     """Scrape prices for each row concurrently using a pool of pages."""
@@ -539,12 +539,13 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
 
             page = await page_pool.get()
             try:
-                result, status, snippet = await fetch_price_from_page(page, url, selector)
+                result, status, snippet, method = await fetch_price_from_page(page, url, selector)
             finally:
                 await page_pool.put(page)
 
             parsed = extract_price(result or "")
             if parsed:
+                logger.debug("%s | %s -> %s via %s", vendor, url, parsed, method)
                 results[idx] = [parsed]
             else:
                 results[idx] = [""]
@@ -554,14 +555,16 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
                         url,
                         status,
                         selector or "semantic/fuzzy",
+                        method,
                         result,
                         snippet,
                     )
                 )
                 logger.error(
-                    "Error scraping %s (%s) - status %s: %s",
+                    "Error scraping %s (%s) [%s] - status %s: %s",
                     vendor,
                     url,
+                    method,
                     status,
                     result,
                 )
@@ -572,7 +575,7 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
         # Log any unexpected exceptions captured by asyncio.gather
         for res in task_results:
             if isinstance(res, Exception):
-                errors.append(("", "", None, "gather", str(res), ""))
+                errors.append(("", "", None, "gather", "", str(res), ""))
                 logger.error("Unhandled exception during scraping: %s", res)
 
         # Close all pages in the pool
