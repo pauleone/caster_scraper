@@ -57,12 +57,26 @@ def get_sheets_service():
     )
     return build('sheets', 'v4', credentials=creds)
 
-def get_links_from_sheet(service):
-    """Return rows containing vendor, URL and selector information."""
+def get_links_from_sheet(service, row=None, vendor=None):
+    """Return rows containing vendor, URL and selector information.
+
+    Optionally filter by a specific spreadsheet row number or by vendor name.
+    """
     range_name = f"{LINKS_TAB}!B{START_ROW}:D"
     result = service.spreadsheets().values().get(
-        spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
-    return result.get('values', [])
+        spreadsheetId=SPREADSHEET_ID, range=range_name
+    ).execute()
+    rows = result.get("values", [])
+
+    filtered = []
+    for idx, r in enumerate(rows, START_ROW):
+        if row is not None and idx != row:
+            continue
+        if vendor and (len(r) == 0 or vendor.lower() not in r[0].lower()):
+            continue
+        filtered.append(r)
+
+    return filtered
 
 def get_next_col_letter(service):
     """Compute the next empty column letter in the links tab."""
@@ -606,13 +620,22 @@ def main():
         action="store_false",
         help="Run browser with UI",
     )
+    parser.add_argument(
+        "--row",
+        type=int,
+        help="Only scrape the specified spreadsheet row number",
+    )
+    parser.add_argument(
+        "--vendor",
+        help="Only scrape rows whose vendor column contains this value",
+    )
     parser.set_defaults(headless=HEADLESS_ENV)
     args = parser.parse_args()
     HEADLESS = args.headless
 
     logger.info("🔁 Starting scraper-v1.0...")
     service = get_sheets_service()
-    rows = get_links_from_sheet(service)
+    rows = get_links_from_sheet(service, row=args.row, vendor=args.vendor)
     col_letter = get_next_col_letter(service)
 
     prices, errors = asyncio.run(scrape_all(rows, concurrency=CONCURRENCY))
@@ -622,5 +645,4 @@ def main():
     log_errors(service, errors)
     logger.info("✅ Scraping complete.")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":    main()
