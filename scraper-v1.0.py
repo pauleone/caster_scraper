@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 import argparse
 from harbor_freight_scraper import fetch_price as hf_fetch_price
+from northern_tool_scraper import price_from_page as nt_price_from_page
 
 # === CONFIG ===
 SPREADSHEET_ID = os.environ.get(
@@ -337,6 +338,10 @@ async def fetch_price_from_page(page, url, selector=None):
         if "harborfreight.com" in domain:
             price = await harbor_freight_price_scan(url)
             return price, None
+
+        if "northerntool.com" in domain:
+            price = await nt_price_from_page(page, url)
+            return price or "No price found", None
 
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
