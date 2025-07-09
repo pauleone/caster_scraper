@@ -56,6 +56,10 @@ You can limit the run to specific rows using `--row <N>` or filter by vendor
 name using `--vendor <name>`. These options are useful for quick tests without
 scraping the entire sheet.
 
+## Vendor-Specific Scrapers
+The script provides built-in handlers for Grainger, MSC Direct, Northern Tool, and Caster Depot. Each handler first tries to fetch prices through the configured proxy services and falls back to a direct request when needed.
+ 
+
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.
 - If Playwright fails to launch the browser, run `playwright install` to download the required browser binaries.
