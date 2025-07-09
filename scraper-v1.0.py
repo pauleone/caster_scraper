@@ -358,7 +358,8 @@ async def fetch_price_from_page(page, url, selector=None):
                 else:
                     return ("Selector not found", status)
             except Exception as sel_error:
-                return (f"Selector error: {sel_error}", status)
+                logger.debug("Selector failed for %s: %s", selector, sel_error)
+                return ("Selector error", status)
 
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
