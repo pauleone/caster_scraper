@@ -14,7 +14,7 @@ This project collects pricing information from product pages and records the res
  ```bash
  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
   ```
-6. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `5`.
+6. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `2`.
 7. (Optional) Override spreadsheet details or browser mode with environment variables:
    ```bash
    export SPREADSHEET_ID=<your_sheet_id>
@@ -31,7 +31,7 @@ The scraper expects a spreadsheet with two tabs:
   - **Column C**: Product URL
   - **Column D**: Optional CSS selector for the price
   New price columns are added automatically to the right of the existing data.
-- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code alongside the URL and error message.
+- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code, the selector used, and a short HTML snippet alongside the URL and error message.
 
 Set the spreadsheet and tab names using environment variables if they differ from the defaults:
 
@@ -49,7 +49,8 @@ python scraper-v1.0.py
 The script retrieves the latest prices and writes them to the next empty column
 in the **Caster Links** tab. Set the `SCRAPER_CONCURRENCY` environment variable
 to control how many pages are fetched simultaneously. Any errors encountered are
-appended to the **Error Log** tab.
+appended to the **Error Log** tab along with a short snippet of the page for
+troubleshooting.
 
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.

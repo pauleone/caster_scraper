@@ -27,7 +27,7 @@ CREDENTIALS_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 
 HEADLESS_ENV = os.environ.get("HEADLESS", "true").lower() in ("1", "true", "yes", "y")
 HEADLESS = HEADLESS_ENV
-CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "5"))
+CONCURRENCY = int(os.environ.get("SCRAPER_CONCURRENCY", "2"))
 
 # API keys for optional scraping services
 SCRAPERAPI_KEY = os.environ.get("SCRAPERAPI_KEY")
@@ -100,8 +100,8 @@ def log_errors(service, errors):
         return
     today = datetime.datetime.now().isoformat()
     values = [
-        [today, vendor, url, status, selector, error]
-        for vendor, url, status, selector, error in errors
+        [today, vendor, url, status, selector, error, snippet]
+        for vendor, url, status, selector, error, snippet in errors
     ]
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
@@ -329,15 +329,16 @@ async def harbor_freight_price_scan(url):
 
 async def fetch_price_from_page(page, url, selector=None):
     """Return the price text from the given URL using optional CSS selector."""
+    page_html = ""
     try:
         domain = urlparse(url).netloc.lower()
         if "menards.com" in domain:
             price = await menards_price_scan(page, url)
-            return price, None
+            return price, None, None
 
         if "harborfreight.com" in domain:
             price = await harbor_freight_price_scan(url)
-            return price, None
+            return price, None, None
 
         if "northerntool.com" in domain:
             price = await nt_price_from_page(page, url)
@@ -346,10 +347,11 @@ async def fetch_price_from_page(page, url, selector=None):
         response = await page.goto(url, timeout=20000)
         status = response.status if response else None
         await page.wait_for_timeout(3000)
+        page_html = await page.content()
 
         if "castercity.com" in domain:
             price = await caster_city_price_scan(page)
-            return price, status
+            return price, status, None
 
         # Tier 1: Specific selector from sheet
         if selector:
@@ -367,7 +369,9 @@ async def fetch_price_from_page(page, url, selector=None):
                     text = ""
                 price = extract_price(text)
                 if price:
-                    return price, status
+        eyhmx7-codex/fix-broken-links-after-last-commit
+                    return price, status, None
+        main
                 logger.debug("No price found in selector for %s", selector)
             else:
                 logger.debug("Selector not found: %s", selector)
@@ -376,19 +380,18 @@ async def fetch_price_from_page(page, url, selector=None):
         # Tier 2: Semantic scan
         price = await enhanced_semantic_price_scan(page)
         if price:
-            return price, status
+            return price, status, None
 
         # Tier 3: Fuzzy content scan
-        content = await page.content()
-        text_price = extract_price(content)
+        text_price = extract_price(page_html)
         if not text_price:
-            text_price = bs_price_scan(content)
-        return (text_price or "No price found in fuzzy scan", status)
+            text_price = bs_price_scan(page_html)
+        return (text_price or "No price found in fuzzy scan", status, page_html[:500])
 
     except PlaywrightTimeoutError:
-        return "Timeout", None
+        return "Timeout", None, page_html[:500]
     except Exception as e:
-        return f"Error: {str(e)}", None
+        return f"Error: {str(e)}", None, page_html[:500]
 
 async def scrape_all(rows, concurrency=CONCURRENCY):
     """Scrape prices for each row concurrently using a pool of pages."""
@@ -429,7 +432,7 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
 
             page = await page_pool.get()
             try:
-                result, status = await fetch_price_from_page(page, url, selector)
+                result, status, snippet = await fetch_price_from_page(page, url, selector)
             finally:
                 await page_pool.put(page)
 
@@ -439,7 +442,14 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
             else:
                 results[idx] = [""]
                 errors.append(
-                    (vendor, url, status, selector or "semantic/fuzzy", result)
+                    (
+                        vendor,
+                        url,
+                        status,
+                        selector or "semantic/fuzzy",
+                        result,
+                        snippet,
+                    )
                 )
                 logger.error(
                     "Error scraping %s (%s) - status %s: %s",
@@ -455,7 +465,7 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
         # Log any unexpected exceptions captured by asyncio.gather
         for res in task_results:
             if isinstance(res, Exception):
-                errors.append(("", "", None, "gather", str(res)))
+                errors.append(("", "", None, "gather", str(res), ""))
                 logger.error("Unhandled exception during scraping: %s", res)
 
         # Close all pages in the pool
