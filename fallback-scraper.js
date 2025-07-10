@@ -1,4 +1,9 @@
-const puppeteer = require('puppeteer');
+let puppeteer;
+try {
+  puppeteer = require('puppeteer');
+} catch (err) {
+  puppeteer = require('puppeteer-core');
+}
 
 (async () => {
   const url = process.argv[2];
@@ -6,7 +11,13 @@ const puppeteer = require('puppeteer');
     console.error('URL argument missing');
     process.exit(1);
   }
-  const browserWSEndpoint = 'wss://brd-customer-zone:pass@brd.superproxy.io:9222';
+  const endpoint = process.env.BRIGHTDATA_BROWSER_URL;
+  const token = process.env.BRIGHTDATA_API_TOKEN;
+  if (!endpoint || !token) {
+    console.error('BrightData environment variables not set');
+    process.exit(1);
+  }
+  const browserWSEndpoint = `${endpoint}?token=${token}`;
   try {
     const browser = await puppeteer.connect({ browserWSEndpoint });
     const page = await browser.newPage();
