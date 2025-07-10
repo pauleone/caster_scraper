@@ -31,7 +31,7 @@ The scraper expects a spreadsheet with two tabs:
   - **Column C**: Product URL
   - **Column D**: Optional CSS selector for the price
   New price columns are added automatically to the right of the existing data.
-- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code, the selector used, and a short HTML snippet alongside the URL and error message.
+- **Error Log** – Receives a timestamped list of any scraping issues. Each entry now records the HTTP status code, the selector used, the method that located the price (such as proxy or semantic scan), and a short HTML snippet alongside the URL and error message.
 
 Set the spreadsheet and tab names using environment variables if they differ from the defaults:
 
@@ -51,6 +51,14 @@ in the **Caster Links** tab. Set the `SCRAPER_CONCURRENCY` environment variable
 to control how many pages are fetched simultaneously. Any errors encountered are
 appended to the **Error Log** tab along with a short snippet of the page for
 troubleshooting.
+
+### Standalone Selenium Example
+The repository also includes `selenium_scrapy_grainger.py`, a self-contained
+script that demonstrates scraping a Grainger product page using Selenium and
+Scrapy. It relies on `webdriver-manager` to download a compatible chromedriver
+version automatically. If you have an old driver in your `PATH` it may conflict
+with the installed Chrome browser. Remove the outdated driver or ensure the
+version matches your Chrome installation.
 
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.
