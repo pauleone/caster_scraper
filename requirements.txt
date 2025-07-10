@@ -28,7 +28,5 @@ beautifulsoup4==4.12.3
 selenium==4.21.0
 scrapy==2.11.2
 webdriver-manager==4.0.2
-
-shrub
 python-dotenv==1.0.0
 pandas==2.1.3
