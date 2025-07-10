@@ -67,11 +67,15 @@ def get_sheets_service():
     return build('sheets', 'v4', credentials=creds)
 
 def get_links_from_sheet(service):
-    """Return rows containing vendor, URL and selector information."""
-    range_name = f"{LINKS_TAB}!B{START_ROW}:D"
-    result = service.spreadsheets().values().get(
-        spreadsheetId=SPREADSHEET_ID, range=range_name).execute()
-    return result.get('values', [])
+    """Return rows containing vendor, URL, selector and optional notes."""
+    range_name = f"{LINKS_TAB}!B{START_ROW}:E"
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=SPREADSHEET_ID, range=range_name)
+        .execute()
+    )
+    return result.get("values", [])
 
 def get_next_col_letter(service):
     """Compute the next empty column letter in the links tab."""
@@ -439,6 +443,22 @@ def puppeteer_grainger_fallback(url: str) -> str:
     except Exception as e:
         return f"Exception in fallback: {str(e)}"
 
+
+def node_fallback_price(url: str) -> str:
+    """Generic Node.js fallback using Puppeteer and BrightData."""
+    try:
+        result = subprocess.run(
+            ["node", "fallback-scraper.js", url],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return f"node-error: {result.stderr.strip()}"
+    except Exception as e:
+        return f"node-exception: {str(e)}"
+
 async def grainger_price_scan(page, url):
     """Special handler for grainger.com pages with proxy fallback."""
     html = fetch_with_scraping_services(url)
@@ -570,11 +590,18 @@ async def harbor_freight_price_scan(url):
     except Exception as e:
         return f"Error: {e}"
 
-async def fetch_price_from_page(page, url, selector=None):
+async def fetch_price_from_page(page, url, selector=None, force_selector_only=False, force_node_fallback=False):
     """Return the price text from the given URL using optional CSS selector."""
     page_html = ""
     try:
+        if force_node_fallback:
+            price = await asyncio.to_thread(node_fallback_price, url)
+            return price or "No price found", None, None, "node-fallback"
+
         domain = urlparse(url).netloc.lower()
+        if "msc.com" in domain or "mscdirect.com" in domain:
+            price, method, status = await msc_price_scan(page, url)
+            return price, status, None, f"msc-{method}"
         if "menards.com" in domain:
             price = await menards_price_scan(page, url)
             return price, None, None, "menards"
@@ -586,10 +613,6 @@ async def fetch_price_from_page(page, url, selector=None):
         if "grainger.com" in domain:
             price, method, status = await grainger_price_scan(page, url)
             return price, status, None, f"grainger-{method}"
-
-        if "mscdirect.com" in domain:
-            price, method, status = await msc_price_scan(page, url)
-            return price, status, None, f"msc-{method}"
 
         if "zoro.com" in domain:
             price, method, status = await zoro_price_scan(page, url)
@@ -632,6 +655,14 @@ async def fetch_price_from_page(page, url, selector=None):
                 logger.debug("No price found in selector for %s", selector)
             else:
                 logger.debug("Selector not found: %s", selector)
+            if force_selector_only:
+                fallback = await asyncio.to_thread(node_fallback_price, url)
+                return (
+                    fallback or "No price found",
+                    status,
+                    page_html[:300],
+                    "node-fallback",
+                )
             # Fall through to semantic scan if selector didn't yield a price
 
         # Tier 2: Semantic scan
@@ -648,12 +679,27 @@ async def fetch_price_from_page(page, url, selector=None):
         text_price = extract_price(page_html)
         if not text_price:
             text_price = bs_price_scan(page_html)
-        return (text_price or "No price found in fuzzy scan", status, page_html[:500], "fuzzy")
+        if text_price:
+            return text_price, status, None, "fuzzy"
+
+        fallback = await asyncio.to_thread(node_fallback_price, url)
+        return (
+            fallback or "No price found",
+            status,
+            page_html[:300],
+            "node-fallback",
+        )
 
     except PlaywrightTimeoutError:
-        return "Timeout", None, page_html[:500], "timeout"
+        fallback = await asyncio.to_thread(node_fallback_price, url)
+        if fallback:
+            return fallback, None, None, "node-fallback"
+        return "Timeout", None, page_html[:300], "timeout"
     except Exception as e:
-        return f"Error: {str(e)}", None, page_html[:500], "exception"
+        fallback = await asyncio.to_thread(node_fallback_price, url)
+        if fallback:
+            return fallback, None, None, "node-fallback"
+        return f"Error: {str(e)}", None, page_html[:300], "exception"
 
 async def scrape_all(rows, concurrency=CONCURRENCY):
     """Scrape prices for each row concurrently using a pool of pages."""
@@ -683,27 +729,44 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
             vendor = row[0].strip() if len(row) > 0 else ""
             url = row[1].strip() if len(row) > 1 else ""
             selector = row[2].strip() if len(row) > 2 else ""
+            notes = row[3].strip() if len(row) > 3 else ""
+            flags = notes.lower()
+            force_selector_only = "forceselectoronly" in flags
+            force_node_fallback = "forcenodefallback" in flags
 
             if not url:
                 results[idx] = [""]
                 return
 
             logger.info(
-                "Scraping: %s | %s | Using selector: %s",
+                "Scraping: %s | %s | Selector: %s | Notes: %s",
                 vendor,
                 url,
                 selector or "semantic/fuzzy",
+                notes,
             )
 
             page = await page_pool.get()
             try:
-                result, status, snippet, method = await fetch_price_from_page(page, url, selector)
+                result, status, snippet, method = await fetch_price_from_page(
+                    page,
+                    url,
+                    selector,
+                    force_selector_only=force_selector_only,
+                    force_node_fallback=force_node_fallback,
+                )
             finally:
                 await page_pool.put(page)
 
             parsed = extract_price(result or "")
             if parsed:
-                logger.debug("%s | %s -> %s via %s", vendor, url, parsed, method)
+                logger.info(
+                    "✅ Price found: %s via %s | Selector used: %s | URL: %s",
+                    parsed,
+                    method,
+                    selector or "", 
+                    url,
+                )
                 results[idx] = [parsed]
             else:
                 results[idx] = [""]
@@ -719,12 +782,11 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
                     )
                 )
                 logger.error(
-                    "Error scraping %s (%s) [%s] - status %s: %s",
-                    vendor,
-                    url,
+                    "❌ Failed via %s | URL: %s | Status: %s | Snippet: %s",
                     method,
+                    url,
                     status,
-                    result,
+                    snippet,
                 )
 
         tasks = [asyncio.create_task(scrape_row(i, row)) for i, row in enumerate(rows)]
