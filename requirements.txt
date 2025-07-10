@@ -27,3 +27,4 @@ urllib3==2.5.0
 beautifulsoup4==4.12.3
 selenium==4.21.0
 scrapy==2.11.2
+webdriver-manager==4.0.2

@@ -52,6 +52,14 @@ to control how many pages are fetched simultaneously. Any errors encountered are
 appended to the **Error Log** tab along with a short snippet of the page for
 troubleshooting.
 
+### Standalone Selenium Example
+The repository also includes `selenium_scrapy_grainger.py`, a self-contained
+script that demonstrates scraping a Grainger product page using Selenium and
+Scrapy. It relies on `webdriver-manager` to download a compatible chromedriver
+version automatically. If you have an old driver in your `PATH` it may conflict
+with the installed Chrome browser. Remove the outdated driver or ensure the
+version matches your Chrome installation.
+
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.
 - If Playwright fails to launch the browser, run `playwright install` to download the required browser binaries.
