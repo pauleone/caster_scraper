@@ -9,18 +9,25 @@ This project collects pricing information from product pages and records the res
    ```bash
    pip install -r requirements.txt
    ```
-4. Create a Google service account and download its credentials JSON file. Grant the service account access to your target spreadsheet.
-5. Export the path to the credentials file before running the scraper:
- ```bash
+4. Copy `.env.example` to `.env` and add your API keys:
+   ```bash
+   cp .env.example .env
+   ```
+5. Create a Google service account and download its credentials JSON file. Grant the service account access to your target spreadsheet.
+6. Export the path to the credentials file before running the scraper:
+```bash
  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service_account.json
   ```
-6. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `2`.
-7. (Optional) Override spreadsheet details or browser mode with environment variables:
+7. (Optional) Set `SCRAPER_CONCURRENCY` to control how many browser pages run in parallel. The default is `2`.
+8. (Optional) Override spreadsheet details or browser mode with environment variables:
    ```bash
    export SPREADSHEET_ID=<your_sheet_id>
    export LINKS_TAB="Caster Links"
    export ERROR_TAB="Error Log"
    export HEADLESS=false  # or use --headed when running the script
+   export BRIGHTDATA_BROWSER_URL="https://example.brightdata.com/browser"
+   export BRIGHTDATA_API_TOKEN=<token>
+   export STEALTH_MODE=true
    ```
 
 ## Spreadsheet Structure
@@ -40,6 +47,8 @@ Set the spreadsheet and tab names using environment variables if they differ fro
 - `ERROR_TAB` – Name of the tab for logging errors (defaults to `Error Log`)
 
 You can also control whether Playwright runs in headless mode. By default the browser is headless, but this can be overridden with `HEADLESS=false` or by passing `--headed` when running the script.
+
+To improve scraping of heavily protected sites like Grainger and Zoro you can supply BrightData Browser API credentials. When `BRIGHTDATA_BROWSER_URL` and `BRIGHTDATA_API_TOKEN` are set the scraper will attempt to fetch pages through BrightData before falling back to Playwright. Setting `STEALTH_MODE=true` injects a small script to hide automation indicators in the browser context.
 
 ## Usage
 Run the scraper from the project directory:

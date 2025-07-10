@@ -14,8 +14,13 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import argparse
+from dotenv import load_dotenv
 from harbor_freight_scraper import fetch_price as hf_fetch_price
 from northern_tool_scraper import price_from_page as nt_price_from_page
+
+# Load environment variables from .env files if present
+load_dotenv()
+load_dotenv(".env.with_google", override=True)
 
 # === CONFIG ===
 SPREADSHEET_ID = os.environ.get(
@@ -36,6 +41,9 @@ SCRAPINGBEE_KEY = os.environ.get("SCRAPINGBEE_KEY")
 SCRAPEDO_KEY = os.environ.get("SCRAPEDO_KEY")
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN")
 ZYTE_API_KEY = os.environ.get("ZYTE_API_KEY")
+BRIGHTDATA_BROWSER_URL = os.environ.get("BRIGHTDATA_BROWSER_URL")
+BRIGHTDATA_API_TOKEN = os.environ.get("BRIGHTDATA_API_TOKEN")
+STEALTH_MODE = os.environ.get("STEALTH_MODE", "true").lower() in ("1", "true", "yes", "y")
 
 # === LOGGING SETUP ===
 logging.basicConfig(
@@ -115,6 +123,12 @@ def log_errors(service, errors):
 # === SCRAPING HELPERS ===
 CURRENCY_SYMBOLS = "$€£¥₹"
 CURRENCY_CODES = "USD|EUR|GBP|CAD|AUD|JPY|CNY|INR"
+STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+window.chrome = { runtime: {} };
+Object.defineProperty(navigator, 'plugins', { get: () => [1,2,3,4] });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+"""
 
 def extract_price(text):
     """Return the first price-like string found in the text.
@@ -180,6 +194,19 @@ def script_price_scan(html):
                 return f"${match.group(1)}"
     return None
 
+def initial_state_price_scan(html):
+    """Look for window.__INITIAL_STATE__ JSON data and parse a price."""
+    match = re.search(r"__INITIAL_STATE__\s*=\s*(\{.*?\})\s*;", html, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            price = _json_price_search(data)
+            if price:
+                return f"${price}" if not extract_price(str(price)) else str(price)
+        except Exception:
+            return None
+    return None
+
 def fetch_with_scraping_services(url):
     """Fetch a URL using one of the configured scraping services."""
     services = []
@@ -232,6 +259,28 @@ def fetch_with_scraping_services(url):
             logger.warning("Service %s failed: %s", name, e)
     return None
 
+def fetch_with_brightdata_browser(url):
+    """Fetch rendered HTML using BrightData Browser API if configured."""
+    if not BRIGHTDATA_BROWSER_URL or not BRIGHTDATA_API_TOKEN:
+        return None
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        resp = requests.get(
+            BRIGHTDATA_BROWSER_URL,
+            params={"url": url, "token": BRIGHTDATA_API_TOKEN},
+            headers=headers,
+            timeout=30,
+        )
+        if resp.status_code == 200 and resp.text:
+            logger.info("Fetched %s via brightdata-browser", url)
+            return resp.text
+        logger.warning(
+            "brightdata-browser returned status %s", resp.status_code
+        )
+    except Exception as e:
+        logger.warning("BrightData browser failed: %s", e)
+    return None
+
 def menards_price_from_html(html):
     """Extract price from Menards HTML content."""
     soup = BeautifulSoup(html, "html.parser")
@@ -257,6 +306,16 @@ def menards_price_from_html(html):
         price = extract_price(meta.get("content") or "")
         if price:
             return price
+    return bs_price_scan(html)
+
+def zoro_price_from_html(html):
+    """Extract a price from Zoro HTML using embedded JSON or fuzzy scan."""
+    price = initial_state_price_scan(html)
+    if price:
+        return price
+    price = script_price_scan(html)
+    if price:
+        return price
     return bs_price_scan(html)
 
 async def enhanced_semantic_price_scan(page):
@@ -354,7 +413,10 @@ async def menards_price_scan(page, url):
     return fallback or "No price found"
 
 def grainger_price_from_html(html):
-    """Extract the price from Grainger HTML using JSON-LD or fuzzy scan."""
+    """Extract the price from Grainger HTML using embedded JSON or fuzzy scan."""
+    price = initial_state_price_scan(html)
+    if price:
+        return price
     price = script_price_scan(html)
     if price:
         return price
@@ -406,6 +468,33 @@ async def msc_price_scan(page, url):
         await page.wait_for_timeout(5000)
     page_html = await page.content()
     price = msc_price_from_html(page_html)
+    if price:
+        return price, "direct", status
+    fallback = await enhanced_semantic_price_scan(page)
+    return (fallback or "No price found", "semantic", status)
+
+async def zoro_price_scan(page, url):
+    """Handle price scraping for zoro.com with multiple fallbacks."""
+    html = fetch_with_scraping_services(url)
+    if html:
+        price = zoro_price_from_html(html)
+        if price:
+            return price, "proxy", None
+
+    html = fetch_with_brightdata_browser(url)
+    if html:
+        price = zoro_price_from_html(html)
+        if price:
+            return price, "brightdata", None
+
+    response = await page.goto(url, timeout=30000)
+    status = response.status if response else None
+    try:
+        await page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        await page.wait_for_timeout(8000)
+    page_html = await page.content()
+    price = zoro_price_from_html(page_html)
     if price:
         return price, "direct", status
     fallback = await enhanced_semantic_price_scan(page)
@@ -479,6 +568,10 @@ async def fetch_price_from_page(page, url, selector=None):
         if "mscdirect.com" in domain:
             price, method, status = await msc_price_scan(page, url)
             return price, status, None, f"msc-{method}"
+
+        if "zoro.com" in domain:
+            price, method, status = await zoro_price_scan(page, url)
+            return price, status, None, f"zoro-{method}"
 
         if "northerntool.com" in domain:
             nt_price = await nt_price_from_page(page, url)
@@ -559,7 +652,10 @@ async def scrape_all(rows, concurrency=CONCURRENCY):
         # Create a pool of pages according to the desired concurrency
         page_pool = asyncio.Queue()
         for _ in range(concurrency):
-            page_pool.put_nowait(await context.new_page())
+            new_page = await context.new_page()
+            if STEALTH_MODE:
+                await new_page.add_init_script(STEALTH_JS)
+            page_pool.put_nowait(new_page)
 
         async def scrape_row(idx, row):
             vendor = row[0].strip() if len(row) > 0 else ""
