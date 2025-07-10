@@ -121,5 +121,4 @@ def fetch_price(url: str = URL) -> str:
     return asyncio.run(fetch_price_async(url))
 
 
-if __name__ == "__main__":
-    print("Northern Tool price:", fetch_price())
+if __name__ == "__main__":    print("Northern Tool price:", fetch_price())
