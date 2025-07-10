@@ -209,3 +209,4 @@ marimo/_lsp/
 __marimo__/
 
 caster-scraper-b33e30545bf4.json
+.env.with_google
