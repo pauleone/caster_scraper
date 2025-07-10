@@ -17,6 +17,7 @@ import argparse
 from dotenv import load_dotenv
 from harbor_freight_scraper import fetch_price as hf_fetch_price
 from northern_tool_scraper import price_from_page as nt_price_from_page
+import subprocess
 
 # Load environment variables from .env files if present
 load_dotenv()
@@ -422,6 +423,22 @@ def grainger_price_from_html(html):
         return price
     return bs_price_scan(html)
 
+
+def puppeteer_grainger_fallback(url: str) -> str:
+    """Invoke the Node.js fallback scraper for Grainger and return the price."""
+    try:
+        result = subprocess.run(
+            ["node", "grainger-fallback.js", url],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return f"Fallback error: {result.stderr.strip()}"
+    except Exception as e:
+        return f"Exception in fallback: {str(e)}"
+
 async def grainger_price_scan(page, url):
     """Special handler for grainger.com pages with proxy fallback."""
     html = fetch_with_scraping_services(url)
@@ -441,7 +458,12 @@ async def grainger_price_scan(page, url):
     if price:
         return price, "direct", status
     fallback = await enhanced_semantic_price_scan(page)
-    return (fallback or "No price found", "semantic", status)
+    if fallback:
+        return fallback, "semantic", status
+
+    # If still no price found, try Puppeteer fallback
+    fallback_price = await asyncio.to_thread(puppeteer_grainger_fallback, url)
+    return (fallback_price or "No price found", "puppeteer", status)
 
 
 def msc_price_from_html(html):
