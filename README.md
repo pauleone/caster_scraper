@@ -60,6 +60,21 @@ scraping the entire sheet.
 The script provides built-in handlers for Grainger, MSC Direct, Northern Tool, and Caster Depot. Each handler first tries to fetch prices through the configured proxy services and falls back to a direct request when needed.
  
 
+## Running `selenium_scrapy_grainger.py`
+`selenium_scrapy_grainger.py` demonstrates using Selenium to load a Grainger product page and Scrapy's `Selector` to parse the HTML. Ensure Google Chrome and Chromedriver are installed. Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
+Then run the script:
+
+```bash
+python selenium_scrapy_grainger.py
+```
+
+It prints the extracted price of the demo item.
+
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.
 - If Playwright fails to launch the browser, run `playwright install` to download the required browser binaries.
