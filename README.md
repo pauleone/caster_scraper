@@ -52,28 +52,13 @@ to control how many pages are fetched simultaneously. Any errors encountered are
 appended to the **Error Log** tab along with a short snippet of the page for
 troubleshooting.
 
-You can limit the run to specific rows using `--row <N>` or filter by vendor
-name using `--vendor <name>`. These options are useful for quick tests without
-scraping the entire sheet.
-
-## Vendor-Specific Scrapers
-The script provides built-in handlers for Grainger, MSC Direct, Northern Tool, and Caster Depot. Each handler first tries to fetch prices through the configured proxy services and falls back to a direct request when needed.
- 
-
-## Running `selenium_scrapy_grainger.py`
-`selenium_scrapy_grainger.py` demonstrates using Selenium to load a Grainger product page and Scrapy's `Selector` to parse the HTML. Ensure Google Chrome and Chromedriver are installed. Install dependencies with:
-
-```bash
-pip install -r requirements.txt
-```
-
-Then run the script:
-
-```bash
-python selenium_scrapy_grainger.py
-```
-
-It prints the extracted price of the demo item.
+### Standalone Selenium Example
+The repository also includes `selenium_scrapy_grainger.py`, a self-contained
+script that demonstrates scraping a Grainger product page using Selenium and
+Scrapy. It relies on `webdriver-manager` to download a compatible chromedriver
+version automatically. If you have an old driver in your `PATH` it may conflict
+with the installed Chrome browser. Remove the outdated driver or ensure the
+version matches your Chrome installation.
 
 ## Troubleshooting
 - Ensure your service account credentials are correct and that the account has permission to edit the spreadsheet.

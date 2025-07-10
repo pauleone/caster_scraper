@@ -2,8 +2,10 @@ import json
 import re
 from scrapy import Selector
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
+from webdriver_manager.chrome import ChromeDriverManager
 
 GRAINGER_URL = "https://www.grainger.com/product/MYTON-INDUSTRIES-Bulk-Container-7-cu-ft-4LMC3"
 
@@ -31,7 +33,8 @@ def extract_price(html: str) -> str | None:
 def fetch_price(url: str) -> str | None:
     opts = Options()
     opts.add_argument("--headless")
-    driver = webdriver.Chrome(options=opts)
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=opts)
     try:
         driver.get(url)
         WebDriverWait(driver, 20).until(lambda d: d.execute_script("return document.readyState") == "complete")
