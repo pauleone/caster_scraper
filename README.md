@@ -77,3 +77,12 @@ version matches your Chrome installation.
 
 ## Contact
 For questions or support, open an issue on this repository or email `support@example.com`.
+## PDF Contact Extraction
+
+`pdf_contact_extractor.py` parses contact information from scanned quotation and invoice PDFs using multiple extraction backends including layoutparser, pymupdf4llm, llama-index, unstructured, pypdf, pdfplumber, OCRmyPDF, EasyOCR, PaddleOCR, pdfminer.six, pypdfium2, Camelot, tabula-py, deepdoctection, DocTR, invoice2data, AWS Textract and Google Document AI. Each backend's results are written to a single CSV file with method-specific column prefixes so their accuracy can be compared.
+
+### Usage
+```bash
+python pdf_contact_extractor.py path/to/invoice.pdf path/to/quote.pdf -o contact_data.csv
+```
+The script appends one row per input PDF and leaves fields blank when data cannot be extracted.
