@@ -30,3 +30,12 @@ scrapy==2.11.2
 webdriver-manager==4.0.2
 python-dotenv==1.0.0
 pandas==2.1.3
+
+layoutparser
+pymupdf4llm
+llama-index
+unstructured
+pypdf
+pdfplumber
+pdf2image
+pytesseract
